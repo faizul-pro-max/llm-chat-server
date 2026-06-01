@@ -1,0 +1,10 @@
+click>=8.1,<9
+rich>=13,<14
+httpx>=0.27,<1
+fastapi>=0.115,<1
+uvicorn>=0.32,<1
+pynvml>=11.5,<12
+huggingface_hub>=0.26,<1
+pydantic>=2.9,<3
+python-dotenv>=1.0,<2
+libtmux>=0.39,<1

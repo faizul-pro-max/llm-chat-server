@@ -1,0 +1,385 @@
+# GPU Server Orchestrator — CLAUDE.md
+
+> Coding instructions for Claude Code when working in this repo.
+> Read this entire file before writing any code, creating any file, or running any command.
+
+---
+
+## Project Purpose
+
+Python orchestrator that runs on a Vast.ai GPU instance. Manages:
+- Model download from HuggingFace Hub
+- vLLM server lifecycle
+- GPU metrics streaming agent (FastAPI on :9100)
+- Warmup phase orchestration
+- Health checks aggregating both services
+- CLI commands: `start`, `stop`, `status`, `logs`, `doctor`, `scenarios`
+
+This runs IN the GPU container. Talks to the Node.js app server externally over HTTP.
+
+---
+
+## Folder Structure
+
+```
+gpu-server/
+├── Makefile                    ← one-command entry: make start SCENARIO=baseline
+├── requirements.txt            ← pinned Python deps
+├── .env.example
+├── scripts/
+│   ├── install.sh              ← apt + pip install
+│   └── tunnel.sh               ← Tailscale (optional)
+└── src/
+    ├── cli.py                  ← Click CLI — single entry for all commands
+    ├── orchestrator.py         ← lifecycle: doctor → download → start → warmup
+    ├── doctor/                 ← 10 pre-flight checks
+    │   ├── runner.py           ← orchestrates checks, formats output
+    │   ├── check_network.py    ← HF download speed test
+    │   ├── check_disk.py       ← free disk + VRAM
+    │   ├── check_cuda.py       ← driver, CUDA, Python, PyTorch
+    │   ├── check_ports.py      ← :8000 + :9100 reachability
+    │   ├── check_hf.py         ← HF Hub access + token validity
+    │   └── check_cache.py      ← cached models on disk
+    ├── observer-agent/         ← FastAPI metrics server on :9100
+    │   ├── server.py           ← /gpu, /health, /system endpoints
+    │   ├── nvml_reader.py      ← pynvml wrapper
+    │   └── auth.py             ← x-api-key header check
+    ├── models/                 ← scenario configs (Python files)
+    │   ├── _base.py            ← BaseScenario class
+    │   ├── baseline.py         ← no optimizations
+    │   ├── prefix_cache.py     ← --enable-prefix-caching
+    │   ├── chunked_prefill.py  ← --enable-chunked-prefill
+    │   ├── awq_quant.py        ← AWQ INT4
+    │   ├── spec_decode.py      ← speculative decoding
+    │   └── dual_model.py       ← 2× vLLM instances
+    ├── lifecycle/              ← discrete steps the orchestrator calls
+    │   ├── download.py         ← HF Hub download with progress
+    │   ├── start_vllm.py       ← launch vLLM in tmux
+    │   ├── start_agent.py      ← launch observer agent in tmux
+    │   ├── warmup.py           ← 20 warmup requests
+    │   └── health.py           ← wait_for_vllm, wait_for_agent
+    └── utils/
+        ├── tmux.py             ← libtmux wrappers
+        ├── logging.py          ← rich console output
+        ├── env.py              ← .env loading + validation
+        └── http.py             ← shared httpx client
+```
+
+---
+
+## Tech Stack — required versions
+
+| Library | Version | Purpose |
+|---|---|---|
+| python | 3.10+ | minimum |
+| click | ^8.1 | CLI framework |
+| rich | ^13 | coloured terminal output |
+| httpx | ^0.27 | HTTP client |
+| fastapi | ^0.115 | observer agent web server |
+| uvicorn | ^0.32 | ASGI |
+| pynvml | ^11.5 | NVIDIA driver bindings |
+| huggingface_hub | ^0.26 | model download |
+| pydantic | ^2.9 | scenario config validation |
+| python-dotenv | ^1.0 | .env loading |
+| libtmux | ^0.39 | tmux session control |
+| vllm | latest | (installed separately, scenario-specific) |
+
+---
+
+## Environment Variables
+
+```bash
+# .env
+VLLM_API_KEY=a3f8c2d1e9b4...        # vLLM Bearer token (same as app server)
+AGENT_SECRET=7d2e1f9a3b6c...        # observer agent x-api-key
+HF_TOKEN=hf_yourtoken               # HuggingFace (for gated models)
+HF_HOME=/root/.cache/huggingface    # model cache location (use persistent volume)
+LOG_DIR=./logs                      # tmux pipe output destination
+```
+
+---
+
+## CLI Commands (src/cli.py)
+
+```python
+import click
+
+@click.group()
+def cli():
+    """GPU Server Orchestrator — manage vLLM + metrics agent lifecycle."""
+
+@cli.command()
+@click.option('--skip-network', is_flag=True, help='Skip network speed test')
+@click.option('--scenario', default='baseline', help='Scenario to validate against')
+def doctor(skip_network, scenario):
+    """Run pre-flight checks. NO GPU cost — run this first."""
+
+@cli.command()
+@click.option('--scenario', required=True)
+@click.option('--no-warmup', is_flag=True)
+@click.option('--no-download', is_flag=True)
+def start(scenario, no_warmup, no_download):
+    """Full lifecycle: doctor → download → start vLLM + agent → warmup → ready."""
+
+@cli.command()
+@click.option('--service', type=click.Choice(['vllm', 'agent', 'all']), default='all')
+def stop(service):
+    """Stop tmux sessions for vLLM / agent."""
+
+@cli.command()
+def status():
+    """Show service status — tmux sessions + health endpoints."""
+
+@cli.command()
+@click.option('--service', type=click.Choice(['vllm', 'agent']))
+@click.option('--tail', default=50)
+def logs(service, tail):
+    """Tail log files from tmux sessions."""
+
+@cli.group()
+def scenarios():
+    """Scenario management commands."""
+
+@scenarios.command(name='list')
+def list_scenarios():
+    """List all available scenarios."""
+
+@scenarios.command()
+@click.argument('name')
+def show(name):
+    """Show full config of a scenario."""
+
+if __name__ == '__main__':
+    cli()
+```
+
+---
+
+## Coding Standards
+
+### Style
+- **Flat is better than nested.** Avoid deep class hierarchies. Functions over methods when possible.
+- **Explicit over implicit.** No magic. No `@classmethod` chains. No metaclasses.
+- **One file, one responsibility.** If a file exceeds 200 lines, split it.
+- **No silent failures.** Every error gets a clear printed message AND exits non-zero.
+
+### Imports
+- Standard lib first, third-party second, local third
+- No wildcard imports
+- Absolute imports only (`from src.utils.tmux import ...`, never `from ..utils ...`)
+
+### Functions
+- Type hints on all function signatures
+- Docstrings on every public function (one line is fine)
+- Pure functions when possible — pass state in, return state out
+
+### Logging
+- Use `rich.console.Console` for all output — never bare `print` for user-facing messages
+- Section headers via `log.section()` — visual separator with title
+- Errors: red. Warnings: yellow. Success: green. Info: white.
+- Never use logging library — overkill for a CLI tool
+
+### Error handling
+- Catch specific exceptions, never bare `except:`
+- On expected failure: print clear message + `sys.exit(1)`
+- On unexpected exception: let it bubble up so user sees the traceback
+- Doctor checks return `CheckResult` objects, never raise
+
+### CLI behaviour
+- Every command must work without arguments (sensible defaults or clear "missing arg" error)
+- `--help` on every command
+- Exit codes: 0 = success, 1 = doctor failed, 2 = service failed, 3 = user error
+
+---
+
+## Scenario Pattern
+
+```python
+# src/models/baseline.py
+"""Baseline — no optimizations enabled. The zero line."""
+from src.models._base import BaseScenario
+
+class BaselineScenario(BaseScenario):
+    name = "baseline"
+    description = "Plain vLLM FP16, no optimizations"
+
+    model = "Qwen/Qwen2.5-7B-Instruct"
+    dtype = "float16"
+    gpu_memory_utilization = 0.90
+    max_model_len = 4096
+    max_num_seqs = 256
+    enable_prefix_caching = False
+    # ... explicit values for every field
+
+    def build_vllm_command(self) -> list[str]:
+        """Build the actual `vllm serve` argv."""
+        # see PROJECT-PLAN.md
+
+    def estimated_vram_gb(self) -> float:
+        return 14.0
+
+# Module-level singleton — orchestrator imports `scenario` directly
+scenario = BaselineScenario()
+```
+
+### Scenario loading
+
+```python
+# src/orchestrator.py
+def load_scenario(name: str) -> BaseScenario:
+    """Load by name — imports src/models/{name}.py and returns its `scenario` attr."""
+    import importlib
+    module = importlib.import_module(f"src.models.{name}")
+    return module.scenario
+```
+
+This pattern means:
+- One Python file per scenario, easy to read
+- Diff between scenarios is just the field overrides
+- No YAML, no JSON parsing, no schema validation runtime
+- Adding a new scenario = creating one new .py file
+
+---
+
+## Doctor — Implementation Rules
+
+### Doctor runner pattern
+
+```python
+# src/doctor/runner.py
+from rich.console import Console
+from rich.table import Table
+
+class CheckResult:
+    """Returned by every check function."""
+    def __init__(self, name: str, passed: bool, message: str, severity='error'):
+        self.name = name
+        self.passed = passed
+        self.message = message
+        self.severity = severity  # error | warning | info
+
+def run_all(scenario) -> bool:
+    checks = [
+        check_cuda,
+        check_python,
+        check_disk,
+        check_vram,
+        check_network,    # may take 10s — show spinner
+        check_hf_access,
+        check_ports,
+        check_cache,
+        check_tmux,
+        check_existing_sessions,
+    ]
+    results = []
+    for check_fn in checks:
+        result = check_fn(scenario)
+        results.append(result)
+        print_result(result)
+        if not result.passed and result.severity == 'error':
+            print_summary(results)
+            return False
+    print_summary(results)
+    return all(r.passed for r in results)
+```
+
+### Doctor must do these things
+
+1. Never crash — every check wrapped in try/except returning `CheckResult`
+2. Show progress for slow checks (network test) with `rich.progress.Progress`
+3. Print check name with consistent format: `[N/10] Check name .................... ✓ details`
+4. On failure: print actionable recovery steps, never generic errors
+5. Estimate cost when relevant (network speed → model download cost)
+6. Skip network check on `--skip-network` flag
+
+---
+
+## tmux Session Management
+
+### Session names
+- `vllm` — the vLLM server process
+- `agent` — the observer-agent FastAPI process
+
+### Library: libtmux
+
+```python
+# src/utils/tmux.py
+import libtmux
+
+def create_session(name: str, command: str, log_file: str = None):
+    """Create new tmux session and run command. Pipes output to log_file if given."""
+    server = libtmux.Server()
+    if server.has_session(name):
+        raise RuntimeError(f"Session '{name}' already exists. Run `make stop` first.")
+    session = server.new_session(session_name=name, detach=True, kill_session=False)
+    pane = session.attached_pane
+    if log_file:
+        pane.send_keys(f"exec > >(tee {log_file}) 2>&1")
+    pane.send_keys(command)
+
+def is_running(name: str) -> bool:
+    server = libtmux.Server()
+    return server.has_session(name)
+
+def kill_session(name: str):
+    server = libtmux.Server()
+    if server.has_session(name):
+        server.kill_session(name)
+
+def capture_pane(name: str, lines: int = 50) -> str:
+    """Read last N lines from session pane."""
+    # implementation
+```
+
+---
+
+## Lifecycle Step Pattern
+
+Each file in `src/lifecycle/` exports one main function. The orchestrator chains them.
+
+```python
+# src/lifecycle/start_vllm.py
+def start_in_tmux(scenario, log_file: str):
+    """Start vLLM in tmux session 'vllm'. Returns when process is launched (not when ready)."""
+    command = " ".join(scenario.build_vllm_command())
+    tmux.create_session("vllm", command, log_file)
+    log.info(f"vLLM launched in tmux. Log: {log_file}")
+    log.info(f"  Attach: tmux attach -t vllm")
+```
+
+```python
+# src/lifecycle/health.py
+def wait_for_vllm(timeout: int = 180, show_log_tail: bool = True) -> bool:
+    """Poll vLLM /health until ready or timeout. Shows progress + log tail."""
+    # uses rich.live.Live to update the same line
+    # tails tmux pane output for visibility
+```
+
+---
+
+## Hard Rules
+
+- **Never** download a model without doctor passing
+- **Never** start vLLM if VRAM check failed
+- **Never** silently retry on failure — always print what's being retried and why
+- **Always** check `tmux is_running` before starting a service (avoid double-start)
+- **Always** print the public IP + mapped ports at the end of `start` command
+- **Always** validate scenario name exists before any expensive operation
+- **Never** hard-code paths — use env vars with sensible defaults
+- **Never** use `subprocess.Popen` without `shell=False` and explicit argument lists
+- **Never** print API keys or secrets in any log output
+
+---
+
+## Build Order
+
+Build in this exact sequence — each phase verifies before moving on:
+
+1. **CLI skeleton + Click** — `make doctor` and `make start --help` work, no logic yet
+2. **Doctor checks** — implement all 10 checks, run on real GPU box, verify output
+3. **tmux helpers** — create/kill/capture sessions, test with `sleep 60`
+4. **Observer agent** — FastAPI + pynvml on :9100, test curl with auth
+5. **Scenario configs** — BaseScenario + baseline scenario, validate build_vllm_command
+6. **Lifecycle steps** — download, start_vllm, start_agent, warmup individually
+7. **Orchestrator** — chain everything together
+8. **Remaining scenarios** — prefix_cache, chunked_prefill, awq_quant, spec_decode, dual_model
