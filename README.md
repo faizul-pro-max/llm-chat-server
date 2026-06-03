@@ -8,6 +8,8 @@ One command starts everything:
 make start SCENARIO=baseline
 ```
 
+When startup is complete, the orchestrator prints the public IP, mapped ports, and a ready-to-paste `.env` snippet for your Node.js app server.
+
 ---
 
 ## Prerequisites
@@ -31,8 +33,9 @@ make start SCENARIO=baseline
 | Python | 3.10+ | `python3 --version` |
 | NVIDIA Driver | ≥ 525 | `nvidia-smi` |
 | CUDA | ≥ 12.1 | `nvcc --version` |
-| tmux | any | `apt install tmux` |
-| pip | latest | `pip install --upgrade pip` |
+| tmux | any | installed by `make install` |
+| speedtest | Ookla CLI | installed by `make install` |
+| ngrok | any | installed by `make install` |
 
 ### Python dependencies
 
@@ -52,8 +55,9 @@ huggingface_hub, pydantic, python-dotenv, libtmux
 
 | Service | Required? | Notes |
 |---|---|---|
-| HuggingFace | Optional | Required for gated models (e.g. Llama). `HF_TOKEN` in `.env` |
 | Vast.ai | Yes | Where you rent the GPU instance |
+| HuggingFace | Optional | Required only for gated models (e.g. Llama). Set `HF_TOKEN` in `.env` |
+| ngrok | Optional | Required only for `make tunnel`. Free account at [ngrok.com](https://ngrok.com) |
 
 ---
 
@@ -70,9 +74,13 @@ cd gpu-server
 
 ```bash
 make install
-# or manually:
-bash scripts/install.sh
 ```
+
+This runs [scripts/install.sh](scripts/install.sh) which installs:
+- System packages: `tmux`, `curl`
+- Ookla speedtest CLI (via packagecloud.io apt repo)
+- ngrok (via ngrok apt repo)
+- Python packages from `requirements.txt`
 
 ### 3. Configure environment
 
@@ -83,12 +91,15 @@ cp .env.example .env
 Edit `.env` and fill in:
 
 ```bash
-VLLM_API_KEY=your_vllm_secret       # any string — used as Bearer token
-AGENT_SECRET=your_agent_secret      # any string — used as x-api-key header
-HF_TOKEN=hf_xxxxxxxxxxxx            # HuggingFace token (skip if using public models)
-HF_HOME=/root/.cache/huggingface    # where models are stored — point to persistent volume
+VLLM_API_KEY=your_vllm_secret        # Bearer token for vLLM — same value in your Node.js .env
+AGENT_SECRET=your_agent_secret       # x-api-key header for the observer agent
+HF_TOKEN=hf_xxxxxxxxxxxx             # HuggingFace token (skip if using public models)
+HF_HOME=/root/.cache/huggingface     # where models are stored — point to a persistent volume
 LOG_DIR=./logs
+NGROK_AUTHTOKEN=your_ngrok_token     # only needed for `make tunnel`
 ```
+
+> Get your ngrok auth token at [dashboard.ngrok.com](https://dashboard.ngrok.com/get-started/your-authtoken)
 
 ### 4. Install vLLM
 
@@ -113,17 +124,28 @@ make start SCENARIO=baseline
 ### All make targets
 
 ```bash
-make help              # show all available targets
+make help                        # show all available targets
 
-make install           # install system + Python dependencies
-make doctor            # run 10 pre-flight checks
-make start SCENARIO=baseline      # full lifecycle start
-make stop              # stop vLLM + agent
-make status            # show service status + HTTP health
-make logs              # tail combined log output
-make attach SVC=vllm   # attach to vLLM tmux session (Ctrl-B D to detach)
-make attach SVC=agent  # attach to agent tmux session
-make clean             # stop services + delete log files (keeps models)
+make install                     # install system + Python deps (tmux, speedtest, ngrok, pip)
+make start SCENARIO=name         # full lifecycle: doctor → download → start → warmup → ready
+make stop                        # stop vLLM + agent tmux sessions
+make status                      # show service status + HTTP health endpoints
+make logs                        # tail combined log output
+make attach SVC=vllm             # attach to vLLM tmux session (Ctrl-B D to detach)
+make attach SVC=agent            # attach to agent tmux session
+make tunnel                      # create ngrok HTTPS tunnels (run after make start)
+make clean                       # stop services + delete log files (keeps models)
+make teardown                    # undo make install: kill sessions, delete .venv, logs, .env
+make teardown-full               # teardown + delete model cache + remove apt packages
+
+# Doctor — all variants
+make doctor                      # all 11 checks, rich table output
+make doctor CHECK=network        # run one check only (see check names below)
+make doctor SIMPLE=1             # plain dot-format output instead of table
+make doctor CHECK=cuda SIMPLE=1  # combine: single check + plain output
+make doctor-network              # shorthand — any check name works after the dash
+make doctor-cuda
+make doctor-ram
 ```
 
 ### Available scenarios
@@ -161,10 +183,10 @@ make start SCENARIO=baseline
 1. Load scenario config   (src/models/baseline.py)
         │
         ▼
-2. Doctor checks          (10 pre-flight checks — fails fast if issues found)
+2. Doctor checks          (11 checks — all run, rich table shown at the end)
         │
         ▼
-3. Download model         (HF Hub → HF_HOME, idempotent)
+3. Download model         (HF Hub → HF_HOME, idempotent — skips if already cached)
         │
         ▼
 4. Start observer agent   (FastAPI on :9100, tmux session: agent)
@@ -176,32 +198,156 @@ make start SCENARIO=baseline
 6. Warmup                 (20 requests to stabilise KV cache + TTFT)
         │
         ▼
-7. Print connection info  (public IP, endpoints, .env snippet)
+7. Print connection info  (public IP, Vast.ai-mapped ports, .env snippet)
 ```
 
-### Doctor checks (run before any GPU cost)
+### Connection info output
 
-The doctor runs 10 checks and aborts with actionable advice on failure:
+At the end of `make start`, the orchestrator prints the actual external address to connect from your Node.js server:
 
 ```
-[1/10] CUDA + Driver
-[2/10] Disk space           (≥50 GB free)
-[3/10] VRAM                 (≥ model size × 1.1)
-[4/10] Network speed        (measures HF download throughput, estimates cost)
-[5/10] HuggingFace Hub      (reachability + token validity)
-[6/10] Ports 8000 + 9100    (both must be free)
-[7/10] Cached models        (informational)
-[8/10] tmux                 (must be installed)
-[9/10] Existing sessions    (warns if orphaned vllm/agent sessions found)
+✓  READY FOR BENCHMARKS
+
+  Scenario:          baseline
+  Model:             Qwen/Qwen2.5-7B-Instruct
+  Public IP:         45.32.11.8
+
+  Endpoints:
+  vLLM:              http://45.32.11.8:12453  (internal :8000)
+  Agent:             http://45.32.11.8:12454  (internal :9100)
+
+  Paste into Node.js .env:
+  GPU_SERVER_IP=45.32.11.8
+  VLLM_PORT=12453
+  GPU_AGENT_PORT=12454
 ```
 
-Skip the network test if you know the connection is fast:
+> Vast.ai maps internal ports to external ports automatically. The orchestrator reads `VAST_TCP_PORT_8000` / `VAST_TCP_PORT_9100` env vars to resolve the real external ports.
+
+### Doctor checks
+
+The doctor runs 11 checks. **All checks always run** — results are shown together at the end so you can see the full picture even when multiple things fail.
+
+#### Output formats
+
+**Default — rich table (great for screenshots):**
+
+```
+╭──────────────────────────────────────────────────────────────╮
+│        🩺  GPU Server Orchestrator — Pre-flight Doctor        │
+╰──────────────────────────────────────────────────────────────╯
+
+╭────┬──────────────────────┬────────┬──────────────────────────────────────╮
+│  # │ Check                │ Status │ Result                               │
+├────┼──────────────────────┼────────┼──────────────────────────────────────┤
+│  1 │ CUDA + Driver        │   ✓    │ 535.18 / CUDA 12.3 / torch 2.4.0    │
+│  2 │ Disk space           │   ✓    │ 412 GB free on /root                 │
+│  3 │ VRAM                 │   ✓    │ 1× RTX PRO 6000 / 96 GB free         │
+│  4 │ CPU cores            │   ✓    │ 16 physical cores, 32 threads        │
+│  5 │ RAM                  │   ✓    │ 28.3 GB free / 32.0 GB total (11%)   │
+│  6 │ Network speed        │   ✓    │ ↓ 8.4 MB/s  ↑ 6.2 MB/s (~27 min)   │
+│  7 │ HuggingFace Hub      │   ✓    │ Authenticated as user@org            │
+│  8 │ Ports 8000 + 9100    │   ✓    │ Both available                       │
+│  9 │ Cached models        │   ⓘ    │ Qwen2.5-7B-Instruct (14.2 GB)       │
+│ 10 │ tmux                 │   ✓    │ tmux 3.2a                            │
+│ 11 │ Existing sessions    │   ✓    │ None running                         │
+╰────┴──────────────────────┴────────┴──────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────╮
+│   ✓  ALL CHECKS PASSED — ready to start scenarios            │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+**Plain dot-format (`SIMPLE=1`) — compact, CI-friendly:**
+
+```
+[1/11] CUDA + Driver .............. ✓ 535.18 / CUDA 12.3
+[2/11] Disk space ................. ✓ 412 GB free on /root
+...
+```
+
+#### Check reference
+
+| Key | Check | Pass criteria |
+|---|---|---|
+| `cuda` | CUDA + Driver | nvidia-smi works, driver ≥ 525, CUDA ≥ 12.1 |
+| `disk` | Disk space | ≥ 50 GB free on model cache path |
+| `vram` | VRAM | ≥ model size × 1.1 GB free |
+| `cpu` | CPU cores | ≥ 4 physical cores |
+| `ram` | RAM | ≥ 16 GB required, ≥ 32 GB recommended |
+| `network` | Network speed | ↓ ↑ via Ookla speedtest CLI (HTTP fallback) |
+| `hf` | HuggingFace Hub | reachable + token valid |
+| `ports` | Ports 8000 + 9100 | both unbound |
+| `cache` | Cached models | informational only |
+| `tmux` | tmux | installed |
+| `sessions` | Existing sessions | no orphaned vllm/agent sessions |
+
+#### Running individual checks
 
 ```bash
+# Single check — table output
+make doctor CHECK=network
+make doctor CHECK=cuda
+make doctor CHECK=ram
+
+# Shorthand — append check name after the dash
+make doctor-network
+make doctor-cuda
+make doctor-vram
+make doctor-cpu
+make doctor-ram
+make doctor-hf
+make doctor-ports
+make doctor-cache
+make doctor-tmux
+make doctor-sessions
+
+# Single check + plain output
+make doctor CHECK=network SIMPLE=1
+
+# Skip network check when running all
 python -m src.cli doctor --skip-network
 ```
 
-### Observer agent endpoints
+---
+
+## ngrok tunnel
+
+If Vast.ai's port mapping is blocked or you want a stable HTTPS URL, use the ngrok tunnel:
+
+```bash
+# After make start, in a second terminal:
+make tunnel
+```
+
+Output:
+
+```
+════════════════════════════════════════════════════════════
+  ngrok tunnels active
+════════════════════════════════════════════════════════════
+
+  ✓ vLLM:   https://a1b2c3d4.ngrok-free.app
+  ✓ Agent:  https://e5f6g7h8.ngrok-free.app
+
+  Add to your Node.js app server .env:
+  VLLM_BASE_URL=https://a1b2c3d4.ngrok-free.app
+  GPU_AGENT_URL=https://e5f6g7h8.ngrok-free.app
+```
+
+> **Free ngrok tier** supports 1 simultaneous tunnel. Upgrade to a paid plan to run both vLLM and agent tunnels at the same time.
+
+The ngrok dashboard is available at `http://localhost:4040` on the GPU box while the tunnel is active.
+
+To stop the tunnel:
+
+```bash
+pkill -f ngrok
+```
+
+---
+
+## Observer agent endpoints
 
 The agent runs on `:9100` and streams GPU metrics. All endpoints except `/health` require the `x-api-key` header set to `AGENT_SECRET`.
 
@@ -211,11 +357,11 @@ The agent runs on `:9100` and streams GPU metrics. All endpoints except `/health
 | `GET /gpu?index=0` | Yes | Current GPU metrics JSON |
 | `GET /gpus` | Yes | All GPUs |
 | `GET /system` | Yes | CPU / RAM / hostname |
-| `GET /stream?x_api_key=…` | Query param | SSE stream at 500 ms |
+| `GET /stream?x_api_key=…` | Query param | SSE stream at 500 ms intervals |
 
 ```bash
-# Example (replace with your AGENT_SECRET)
-curl -H "x-api-key: your_agent_secret" http://localhost:9100/gpu
+# Example (replace with your AGENT_SECRET and actual port)
+curl -H "x-api-key: your_agent_secret" http://45.32.11.8:12454/gpu
 ```
 
 Response shape:
@@ -236,9 +382,35 @@ Response shape:
 
 ---
 
+## Teardown
+
+To undo everything set up by `make install` and `make start`:
+
+```bash
+# Safe teardown — keeps model cache
+make teardown
+
+# Full teardown — also deletes model cache and removes apt packages
+make teardown-full
+```
+
+What each removes:
+
+| Step | `make teardown` | `make teardown-full` |
+|---|---|---|
+| Kill vllm + agent tmux sessions | Yes | Yes |
+| Delete `logs/` | Yes | Yes |
+| Delete `.env` | Yes | Yes |
+| Delete `.venv/` | Yes | Yes |
+| Remove `__pycache__` / `.pyc` | Yes | Yes |
+| Delete HF model cache (`HF_HOME`) | No | Yes |
+| `apt remove tmux curl` | No | Yes |
+
+---
+
 ## Testing without a GPU
 
-Some parts can be tested on a CPU-only machine (the doctor will fail the CUDA check, but the code structure can be verified):
+The CLI and doctor can be tested on a CPU-only machine (your MacBook, a CI runner, etc.). The CUDA check will fail — that is expected.
 
 ```bash
 pip install -r requirements.txt
@@ -248,11 +420,11 @@ python -m src.cli --help
 python -m src.cli scenarios list
 python -m src.cli scenarios show baseline
 
-# Run doctor (will fail CUDA + VRAM — that's expected)
+# Run doctor (CUDA + VRAM will fail — everything else runs)
 python -m src.cli doctor --skip-network
 ```
 
-To test the observer agent in isolation (requires `pynvml` and a GPU):
+To test the observer agent in isolation (requires a GPU with pynvml):
 
 ```bash
 uvicorn src.observer_agent.server:app --host 0.0.0.0 --port 9100
@@ -275,18 +447,20 @@ make attach SVC=agent
 # Check individual log files
 tail -f logs/vllm.log
 tail -f logs/agent.log
+tail -f logs/ngrok.log
 ```
 
 ### Common problems
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Doctor fails: "CUDA + Driver" | No GPU / wrong driver | Check `nvidia-smi` |
-| Doctor fails: "VRAM" | Model too large for GPU | Use `awq_quant` scenario |
-| Doctor fails: "Network speed" | Slow host | Pick a different Vast.ai host, or `--skip-network` |
+| Doctor: "CUDA + Driver" fails | No GPU / wrong driver | `nvidia-smi` to diagnose |
+| Doctor: "VRAM" fails | Model too large for GPU | Use `awq_quant` scenario |
+| Doctor: "Network speed" warns | Slow connection | Pick a faster Vast.ai host, or `--skip-network` |
 | `make start` hangs at "Waiting for vLLM" | vLLM crashed on load | `make attach SVC=vllm` to see the error |
 | Port 8000 already in use | Previous run not cleaned | `make stop` |
 | 401 on `/gpu` endpoint | Wrong `AGENT_SECRET` | Check `.env` |
+| ngrok shows only 1 tunnel | Free tier limit | Upgrade ngrok plan or use Vast.ai port mapping |
 
 ---
 
@@ -298,17 +472,18 @@ tail -f logs/agent.log
 ├── requirements.txt
 ├── .env.example
 ├── scripts/
-│   ├── install.sh
-│   └── tunnel.sh               ← optional Tailscale VPN setup
+│   ├── install.sh              ← installs tmux, speedtest CLI, ngrok, Python deps
+│   ├── tunnel.sh               ← ngrok tunnel for vLLM + agent
+│   └── teardown.sh             ← undo all install steps
 ├── src/
 │   ├── cli.py                  ← Click CLI entry point
-│   ├── orchestrator.py         ← lifecycle chain
+│   ├── orchestrator.py         ← lifecycle chain + connection info output
 │   ├── doctor/                 ← 9 pre-flight check modules
-│   ├── observer_agent/         ← FastAPI metrics server on :9100
+│   ├── observer_agent/         ← FastAPI GPU metrics server on :9100
 │   ├── models/                 ← scenario configs (one .py per scenario)
 │   ├── lifecycle/              ← discrete steps: download, start, warmup, health
 │   └── utils/                  ← tmux, logging, env, http helpers
-└── logs/                       ← tmux pipe output (created at runtime)
+└── logs/                       ← tmux + ngrok output (created at runtime)
 ```
 
 ---

@@ -14,15 +14,34 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--skip-network", is_flag=True, help="Skip the network speed test")
-@click.option("--scenario", default="baseline", show_default=True, help="Scenario to validate VRAM/config against")
-def doctor(skip_network: bool, scenario: str) -> None:
-    """Run pre-flight checks. NO GPU cost — run this first."""
+@click.option("--skip-network", is_flag=True, help="Skip the network speed test (ignored when --check=network)")
+@click.option("--scenario",     default="baseline", show_default=True, help="Scenario to validate VRAM/config against")
+@click.option("--check",        default=None, metavar="NAME",
+              help=f"Run a single check only. One of: cuda, disk, vram, cpu, ram, network, hf, ports, cache, tmux, sessions")
+@click.option("--simple",       is_flag=True, help="Use plain dot-format output instead of the table")
+def doctor(skip_network: bool, scenario: str, check: str, simple: bool) -> None:
+    """Run pre-flight checks. NO GPU cost — run this first.
+
+    \b
+    Examples:
+      make doctor                       run all checks (table view)
+      make doctor CHECK=network         run network check only
+      make doctor SIMPLE=1              plain dot-format output
+      python -m src.cli doctor --check cuda
+      python -m src.cli doctor --simple
+    """
     from src.doctor import runner as doctor_runner
+    from src.doctor.runner import CHECK_KEYS
     from src.orchestrator import load_scenario
 
+    if check and check not in CHECK_KEYS:
+        raise click.BadParameter(
+            f"'{check}' is not a valid check name.\nChoose from: {', '.join(CHECK_KEYS)}",
+            param_hint="--check",
+        )
+
     s = load_scenario(scenario)
-    passed = doctor_runner.run_all(s, skip_network=skip_network)
+    passed = doctor_runner.run_all(s, skip_network=skip_network, only=check, simple=simple)
     sys.exit(0 if passed else 1)
 
 

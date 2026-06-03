@@ -74,33 +74,60 @@ def start(
     _print_ready(scenario)
 
 
+_AGENT_INTERNAL_PORT = 9100
+
+
 def _print_ready(scenario: BaseScenario) -> None:
     public_ip = _get_public_ip()
+    vllm_ext = _get_external_port(scenario.port)
+    agent_ext = _get_external_port(_AGENT_INTERNAL_PORT)
+
     from src.utils.logging import console
+    from src.utils import logging as log
+
     console.print(f"\n[bold white]{'═' * 63}[/bold white]")
     console.print("[bold green]✓  READY FOR BENCHMARKS[/bold green]")
     console.print(f"[bold white]{'═' * 63}[/bold white]\n")
 
-    from src.utils import logging as log
     log.print_kv("Scenario:", scenario.name)
     log.print_kv("Model:", scenario.model)
     log.print_kv("Public IP:", public_ip)
     console.print()
+
     log.print_kv("Endpoints:", "")
-    log.print_kv("  vLLM:", f"http://{public_ip}:8000")
-    log.print_kv("  Agent:", f"http://{public_ip}:9100")
+    _print_endpoint(console, "vLLM", public_ip, scenario.port, vllm_ext)
+    _print_endpoint(console, "Agent", public_ip, _AGENT_INTERNAL_PORT, agent_ext)
     console.print()
-    log.print_kv("For .env:", "")
-    log.print_kv("  GPU_SERVER_IP=", public_ip)
-    log.print_kv("  VLLM_PORT=", "8000")
-    log.print_kv("  GPU_AGENT_PORT=", "9100")
+
+    log.print_kv("Paste into Node.js .env:", "")
+    console.print(f"  [bold cyan]GPU_SERVER_IP={public_ip}[/bold cyan]")
+    console.print(f"  [bold cyan]VLLM_PORT={vllm_ext}[/bold cyan]")
+    console.print(f"  [bold cyan]GPU_AGENT_PORT={agent_ext}[/bold cyan]")
     console.print()
+
     log.info("Useful commands:")
     log.info("  make logs               — tail combined logs")
     log.info("  make attach SVC=vllm    — see vLLM live output")
     log.info("  make attach SVC=agent   — see agent live output")
     log.info("  make stop               — stop all services")
     console.print()
+
+
+def _print_endpoint(console, label: str, ip: str, internal: int, external: int) -> None:
+    """Print one endpoint line, noting port mapping when external != internal."""
+    url = f"http://{ip}:{external}"
+    if external != internal:
+        console.print(f"  [dim]{label + ':':<18}[/dim] [white]{url}[/white]  [dim](internal :{internal})[/dim]")
+    else:
+        console.print(f"  [dim]{label + ':':<18}[/dim] [white]{url}[/white]")
+
+
+def _get_external_port(internal: int) -> int:
+    """Return the Vast.ai-mapped external port for an internal port, or the port itself."""
+    val = os.environ.get(f"VAST_TCP_PORT_{internal}")
+    if val and val.isdigit():
+        return int(val)
+    return internal
 
 
 def _get_public_ip() -> str:
