@@ -1,27 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Installing system dependencies"
-apt-get update -qq
-apt-get install -y --no-install-recommends tmux curl
+# ── helpers ───────────────────────────────────────────────────────────────────
+log()  { echo "[install] $*"; }
+warn() { echo "[install][WARN] $*" >&2; }
 
-echo "==> Installing speedtest CLI"
+log "Cleaning up stale third-party apt sources (if any)"
+rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list \
+      /etc/apt/keyrings/ookla_speedtest-cli-archive-keyring.gpg 2>/dev/null || true
+
+log "Running apt-get update"
+if ! apt-get update -qq; then
+    warn "apt-get update reported errors (likely a stale repo); continuing anyway"
+    apt-get update -qq --fix-missing 2>/dev/null || true
+fi
+
+log "Installing system dependencies: tmux curl"
+apt-get install -y --no-install-recommends tmux curl
+log "System dependencies installed"
+
+log "Installing speedtest CLI (best-effort — network check has HTTP fallback)"
 (
     set +e
-    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
-    apt-get install -y speedtest 2>/dev/null
-    if ! command -v speedtest &>/dev/null; then
-        echo "    Ookla package unavailable for this distro; network check will use HTTP fallback"
+    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash 2>&1 \
+        && apt-get install -y speedtest 2>&1
+    if command -v speedtest &>/dev/null; then
+        log "Ookla speedtest installed: $(speedtest --version 2>&1 | head -1)"
+    else
+        warn "Ookla speedtest not available for this distro; network check will use HTTP fallback"
     fi
-) || true
+) || warn "speedtest install block failed — skipping"
 
-echo "==> Installing ngrok"
+log "Installing ngrok"
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
     | tee /etc/apt/trusted.gpg.d/ngrok.asc > /dev/null
 echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
     | tee /etc/apt/sources.list.d/ngrok.list > /dev/null
 apt-get update -qq
 apt-get install -y ngrok
+log "ngrok installed: $(ngrok version 2>&1 | head -1)"
 
 echo "==> Installing Python dependencies"
 python3 -m venv .venv
