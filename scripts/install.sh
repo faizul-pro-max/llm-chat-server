@@ -5,9 +5,12 @@ echo "==> Installing system dependencies"
 apt-get update -qq
 apt-get install -y --no-install-recommends tmux curl
 
-echo "==> Installing Ookla speedtest CLI"
+echo "==> Installing speedtest CLI"
 curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
-apt-get install -y speedtest
+if ! apt-get install -y speedtest 2>/dev/null; then
+    echo "    Ookla package unavailable for this distro; falling back to speedtest-cli (Python)"
+    pip install speedtest-cli
+fi
 
 echo "==> Installing ngrok"
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
@@ -18,8 +21,9 @@ apt-get update -qq
 apt-get install -y ngrok
 
 echo "==> Installing Python dependencies"
-pip install --upgrade pip
-pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements.txt
 
 echo "==> Creating logs directory"
 mkdir -p logs
