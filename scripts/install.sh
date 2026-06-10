@@ -31,6 +31,11 @@ log "Installing speedtest CLI (best-effort — network check has HTTP fallback)"
     fi
 ) || warn "speedtest install block failed — skipping"
 
+# Remove Ookla repo so it doesn't poison subsequent apt-get update calls
+rm -f /etc/apt/sources.list.d/ookla_speedtest-cli.list \
+      /etc/apt/keyrings/ookla_speedtest-cli-archive-keyring.gpg 2>/dev/null || true
+log "Ookla apt source removed"
+
 log "Installing ngrok"
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
     | tee /etc/apt/trusted.gpg.d/ngrok.asc > /dev/null
