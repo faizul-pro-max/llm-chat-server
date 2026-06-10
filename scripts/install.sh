@@ -6,11 +6,14 @@ apt-get update -qq
 apt-get install -y --no-install-recommends tmux curl
 
 echo "==> Installing speedtest CLI"
-curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
-if ! apt-get install -y speedtest 2>/dev/null; then
-    echo "    Ookla package unavailable for this distro; falling back to speedtest-cli (Python)"
-    pip install speedtest-cli
-fi
+(
+    set +e
+    curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash
+    apt-get install -y speedtest 2>/dev/null
+    if ! command -v speedtest &>/dev/null; then
+        echo "    Ookla package unavailable for this distro; network check will use HTTP fallback"
+    fi
+) || true
 
 echo "==> Installing ngrok"
 curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
