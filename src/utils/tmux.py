@@ -36,6 +36,11 @@ def capture_pane(name: str, lines: int = 50) -> str:
     server = _server()
     if not server.has_session(name):
         return ""
-    session = server.find_where({"session_name": name})
+    session = server.sessions.get(session_name=name)
+    if session is None:
+        return ""
     pane = session.active_pane
-    return pane.capture_pane(start=-lines, join=True)
+    output = pane.capture_pane(start=-lines)
+    if isinstance(output, list):
+        return "\n".join(output)
+    return output or ""
