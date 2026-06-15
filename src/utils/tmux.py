@@ -12,7 +12,7 @@ def create_session(name: str, command: str, log_file: str = None) -> None:
     if server.has_session(name):
         raise RuntimeError(f"Session '{name}' already exists. Run `make stop` first.")
     session = server.new_session(session_name=name, detach=True)
-    pane = session.attached_pane
+    pane = session.active_pane
     if log_file:
         pane.send_keys(f"exec > >(tee -a {log_file}) 2>&1")
     pane.send_keys(command)
@@ -36,5 +36,5 @@ def capture_pane(name: str, lines: int = 50) -> str:
     if not server.has_session(name):
         return ""
     session = server.find_where({"session_name": name})
-    pane = session.attached_pane
+    pane = session.active_pane
     return pane.capture_pane(start=-lines, join=True)

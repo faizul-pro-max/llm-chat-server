@@ -1,8 +1,10 @@
-SCENARIO ?= baseline
-SVC      ?= vllm
-CHECK    ?=
-SIMPLE   ?=
-PYTHON   ?= .venv/bin/python3
+SCENARIO     ?= baseline
+SVC          ?= vllm
+CHECK        ?=
+SIMPLE       ?=
+NO_DOWNLOAD  ?=
+NO_WARMUP    ?=
+PYTHON       ?= .venv/bin/python3
 
 .PHONY: help install doctor start stop status logs attach clean teardown tunnel
 
@@ -14,7 +16,9 @@ help:
 	@echo "  make doctor CHECK=network Run a single check  (cuda|disk|vram|cpu|ram|network|hf|ports|cache|tmux|sessions)"
 	@echo "  make doctor SIMPLE=1      Plain dot-format output instead of table"
 	@echo "  make doctor-network       Shorthand for CHECK=network (any check name works)"
-	@echo "  make start SCENARIO=name  Full lifecycle: doctor → download → start → warmup"
+	@echo "  make start SCENARIO=name             Full lifecycle: doctor → download → start → warmup
+  make start SCENARIO=name NO_DOWNLOAD=1  Skip model download (already cached)
+  make start SCENARIO=name NO_WARMUP=1    Skip warmup requests"
 	@echo "  make stop                 Stop all services (vLLM + agent)"
 	@echo "  make status               Show service status"
 	@echo "  make logs                 Tail combined logs"
@@ -38,7 +42,9 @@ doctor-%:
 	$(PYTHON) -m src.cli doctor --check $*
 
 start:
-	$(PYTHON) -m src.cli start --scenario $(SCENARIO)
+	$(PYTHON) -m src.cli start --scenario $(SCENARIO) \
+	  $(if $(NO_DOWNLOAD),--no-download,) \
+	  $(if $(NO_WARMUP),--no-warmup,)
 
 stop:
 	$(PYTHON) -m src.cli stop
