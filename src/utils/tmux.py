@@ -14,6 +14,7 @@ def create_session(name: str, command: str, log_file: str = None) -> None:
         raise RuntimeError(f"Session '{name}' already exists. Run `make stop` first.")
     session = server.new_session(session_name=name, detach=True, start_directory=os.getcwd())
     pane = session.active_pane
+    pane.send_keys(f"cd {os.getcwd()}")
     if log_file:
         pane.send_keys(f"exec > >(tee -a {log_file}) 2>&1")
     pane.send_keys(command)
