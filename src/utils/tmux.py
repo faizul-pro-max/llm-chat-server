@@ -1,5 +1,7 @@
 """libtmux wrappers for managing vllm and agent sessions."""
 import os
+import shlex
+
 import libtmux
 
 
@@ -8,16 +10,27 @@ def _server() -> libtmux.Server:
 
 
 def create_session(name: str, command: str, log_file: str = None) -> None:
-    """Create a new detached tmux session and run command inside it."""
+    """Create a new detached tmux session and run command inside it.
+
+    The pane runs an interactive login shell, so on some hosts (e.g. Vast.ai)
+    ~/.bashrc resets the working directory after libtmux's start_directory takes
+    effect. To be robust we send a single atomic command that first cd's back to
+    the project root, then sets up logging, then runs the command — so nothing
+    depends on the shell's startup behaviour.
+    """
     server = _server()
     if server.has_session(name):
         raise RuntimeError(f"Session '{name}' already exists. Run `make stop` first.")
-    session = server.new_session(session_name=name, detach=True, start_directory=os.getcwd())
+
+    cwd = os.getcwd()
+    session = server.new_session(session_name=name, detach=True, start_directory=cwd)
     pane = session.active_pane
-    pane.send_keys(f"cd {os.getcwd()}")
+
+    prefix = f"cd {shlex.quote(cwd)}"
     if log_file:
-        pane.send_keys(f"exec > >(tee -a {log_file}) 2>&1")
-    pane.send_keys(command)
+        log_abs = os.path.abspath(log_file)
+        prefix += f" && exec > >(tee -a {shlex.quote(log_abs)}) 2>&1"
+    pane.send_keys(f"{prefix} ; {command}")
 
 
 def is_running(name: str) -> bool:

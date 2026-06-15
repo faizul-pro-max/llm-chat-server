@@ -17,7 +17,10 @@ def start_in_tmux(scenario, log_file: str = "logs/vllm.log") -> None:
         sys.exit(2)
 
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    command = " ".join(scenario.build_vllm_command())
+    venv_bin = os.path.dirname(sys.executable)
+    parts = scenario.build_vllm_command()
+    parts[0] = os.path.join(venv_bin, "vllm")
+    command = " ".join(parts)
     log.info(f"Command:   {command}")
     log.info(f"Log:       {log_file}")
 
