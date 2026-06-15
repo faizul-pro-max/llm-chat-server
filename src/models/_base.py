@@ -51,7 +51,6 @@ class BaseScenario(BaseModel):
             "--gpu-memory-utilization", str(self.gpu_memory_utilization),
             "--max-model-len", str(self.max_model_len),
             "--max-num-seqs", str(self.max_num_seqs),
-            "--disable-log-requests",
         ]
         if self.enable_prefix_caching:
             cmd.append("--enable-prefix-caching")
