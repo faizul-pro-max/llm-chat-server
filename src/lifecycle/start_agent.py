@@ -17,7 +17,7 @@ def start_in_tmux(port: int = 9100, log_file: str = "logs/agent.log") -> None:
         sys.exit(2)
 
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    command = f"AGENT_PORT={port} python -m src.observer_agent.server"
+    command = f"AGENT_PORT={port} {sys.executable} -m src.observer_agent.server"
     log.info(f"Command:   {command}")
     log.info(f"Log:       {log_file}")
 

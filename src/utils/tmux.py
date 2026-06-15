@@ -1,4 +1,5 @@
 """libtmux wrappers for managing vllm and agent sessions."""
+import os
 import libtmux
 
 
@@ -11,7 +12,7 @@ def create_session(name: str, command: str, log_file: str = None) -> None:
     server = _server()
     if server.has_session(name):
         raise RuntimeError(f"Session '{name}' already exists. Run `make stop` first.")
-    session = server.new_session(session_name=name, detach=True)
+    session = server.new_session(session_name=name, detach=True, start_directory=os.getcwd())
     pane = session.active_pane
     if log_file:
         pane.send_keys(f"exec > >(tee -a {log_file}) 2>&1")
