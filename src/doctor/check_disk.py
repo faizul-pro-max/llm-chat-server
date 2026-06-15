@@ -5,13 +5,14 @@ import shutil
 
 from src.doctor.runner import CheckResult
 
-MIN_DISK_GB = 50
+_DISK_HEADROOM_GB = 10  # overhead beyond model size for KV cache swap, etc.
 
 
-def check_disk(_scenario) -> CheckResult:
-    """Verify at least 50 GB of disk is free on the model cache path."""
+def check_disk(scenario) -> CheckResult:
+    """Verify enough disk is free: model size + headroom."""
     try:
         import os
+        min_disk_gb = scenario.estimated_vram_gb() + _DISK_HEADROOM_GB
         cache_dir = os.getenv("HF_HOME", "/root/.cache/huggingface")
         # Walk up to find a mounted path
         check_path = cache_dir
@@ -23,11 +24,11 @@ def check_disk(_scenario) -> CheckResult:
         usage = shutil.disk_usage(check_path)
         free_gb = usage.free / (1024 ** 3)
 
-        if free_gb < MIN_DISK_GB:
+        if free_gb < min_disk_gb:
             return CheckResult(
                 name="Disk space",
                 passed=False,
-                message=f"{free_gb:.0f} GB free — need ≥{MIN_DISK_GB} GB",
+                message=f"{free_gb:.0f} GB free — need ≥{min_disk_gb:.0f} GB",
                 detail=f"Path: {check_path}. Free up space or attach a larger volume.",
             )
         return CheckResult(

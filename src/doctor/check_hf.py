@@ -31,12 +31,11 @@ def check_hf_access(_scenario) -> CheckResult:
         r = httpx.get("https://huggingface.co/api/models?limit=1", timeout=10)
         if r.status_code == 200:
             msg = "Reachable (unauthenticated — gated models will fail)"
-            severity = "warning" if not token else "error"
             return CheckResult(
                 name="HuggingFace Hub access",
-                passed=(severity == "warning"),
+                passed=False,
                 message=msg,
-                severity=severity,
+                severity="warning",
                 detail="Set HF_TOKEN in .env for gated model access.",
             )
         return CheckResult(
