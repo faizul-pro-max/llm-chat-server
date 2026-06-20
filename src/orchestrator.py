@@ -61,7 +61,7 @@ def start(
     # ── Step 5: Start vLLM (slow — 60-180s) ─────────────────────────────────
     log.section("vLLM server")
     start_vllm.start_in_tmux(scenario)
-    health.wait_for_vllm(timeout=180, show_log_tail=True)
+    health.wait_for_vllm(timeout=600, show_log_tail=True)
     log.success("vLLM ready at :8000")
 
     # ── Step 6: Warmup ───────────────────────────────────────────────────────
