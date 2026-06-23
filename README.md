@@ -1,6 +1,6 @@
 # GPU Server Orchestrator
 
-Python CLI that runs on a Vast.ai GPU instance. Manages the full lifecycle of a vLLM inference server — model download, startup, warmup, health checks, and a live GPU metrics agent.
+Python CLI that runs on a cloud GPU instance. Manages the full lifecycle of a vLLM inference server — model download, startup, warmup, health checks, and a live GPU metrics agent.
 
 One command starts everything:
 
@@ -29,7 +29,7 @@ When startup is complete, the orchestrator prints the public IP, mapped ports, a
 
 | Software | Version | Notes |
 |---|---|---|
-| Ubuntu | 20.04 / 22.04 | Vast.ai default images work |
+| Ubuntu | 20.04 / 22.04 | Most cloud GPU provider default images work |
 | Python | 3.10+ | `python3 --version` |
 | NVIDIA Driver | ≥ 525 | `nvidia-smi` |
 | CUDA | ≥ 12.1 | `nvcc --version` |
@@ -55,7 +55,7 @@ huggingface_hub, pydantic, python-dotenv, libtmux
 
 | Service | Required? | Notes |
 |---|---|---|
-| Vast.ai | Yes | Where you rent the GPU instance |
+| Cloud GPU provider | Yes | Where you rent the GPU instance |
 | HuggingFace | Optional | Required only for gated models (e.g. Llama). Set `HF_TOKEN` in `.env` |
 | ngrok | Optional | Required only for `make tunnel`. Free account at [ngrok.com](https://ngrok.com) |
 
@@ -198,7 +198,7 @@ make start SCENARIO=baseline
 6. Warmup                 (20 requests to stabilise KV cache + TTFT)
         │
         ▼
-7. Print connection info  (public IP, Vast.ai-mapped ports, .env snippet)
+7. Print connection info  (public IP, provider-mapped ports, .env snippet)
 ```
 
 ### Connection info output
@@ -222,7 +222,7 @@ At the end of `make start`, the orchestrator prints the actual external address 
   GPU_AGENT_PORT=12454
 ```
 
-> Vast.ai maps internal ports to external ports automatically. The orchestrator reads `VAST_TCP_PORT_8000` / `VAST_TCP_PORT_9100` env vars to resolve the real external ports.
+> The cloud GPU provider maps internal ports to external ports automatically. The orchestrator reads the provider-injected `VAST_TCP_PORT_8000` / `VAST_TCP_PORT_9100` env vars to resolve the real external ports.
 
 ### Doctor checks
 
@@ -313,7 +313,7 @@ python -m src.cli doctor --skip-network
 
 ## ngrok tunnel
 
-If Vast.ai's port mapping is blocked or you want a stable HTTPS URL, use the ngrok tunnel:
+If the provider's port mapping is blocked or you want a stable HTTPS URL, use the ngrok tunnel:
 
 ```bash
 # After make start, in a second terminal:
@@ -456,11 +456,11 @@ tail -f logs/ngrok.log
 |---|---|---|
 | Doctor: "CUDA + Driver" fails | No GPU / wrong driver | `nvidia-smi` to diagnose |
 | Doctor: "VRAM" fails | Model too large for GPU | Use `awq_quant` scenario |
-| Doctor: "Network speed" warns | Slow connection | Pick a faster Vast.ai host, or `--skip-network` |
+| Doctor: "Network speed" warns | Slow connection | Pick a faster GPU host, or `--skip-network` |
 | `make start` hangs at "Waiting for vLLM" | vLLM crashed on load | `make attach SVC=vllm` to see the error |
 | Port 8000 already in use | Previous run not cleaned | `make stop` |
 | 401 on `/gpu` endpoint | Wrong `AGENT_SECRET` | Check `.env` |
-| ngrok shows only 1 tunnel | Free tier limit | Upgrade ngrok plan or use Vast.ai port mapping |
+| ngrok shows only 1 tunnel | Free tier limit | Upgrade ngrok plan or use the provider's port mapping |
 
 ---
 

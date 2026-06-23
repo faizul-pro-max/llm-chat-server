@@ -12,7 +12,7 @@ def _server() -> libtmux.Server:
 def create_session(name: str, command: str, log_file: str = None) -> None:
     """Create a new detached tmux session and run command inside it.
 
-    The pane runs an interactive login shell, so on some hosts (e.g. Vast.ai)
+    The pane runs an interactive login shell, so on some hosts (e.g. cloud GPU providers)
     ~/.bashrc resets the working directory after libtmux's start_directory takes
     effect. To be robust we send a single atomic command that first cd's back to
     the project root, then sets up logging, then runs the command — so nothing

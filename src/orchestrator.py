@@ -123,7 +123,7 @@ def _print_endpoint(console, label: str, ip: str, internal: int, external: int) 
 
 
 def _get_external_port(internal: int) -> int:
-    """Return the Vast.ai-mapped external port for an internal port, or the port itself."""
+    """Return the provider-mapped external port for an internal port, or the port itself."""
     val = os.environ.get(f"VAST_TCP_PORT_{internal}")
     if val and val.isdigit():
         return int(val)

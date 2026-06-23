@@ -97,7 +97,7 @@
 
 ## Test Plan (run on real GPU box)
 
-- [ ] `make doctor` — all 10 checks pass on clean Vast.ai instance
+- [ ] `make doctor` — all 10 checks pass on clean cloud GPU instance
 - [ ] `make doctor --skip-network` — skips network test
 - [ ] `make start SCENARIO=baseline` — full lifecycle completes, vLLM serves on :8000
 - [ ] `make status` — shows both services running
