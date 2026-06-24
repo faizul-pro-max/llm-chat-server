@@ -46,10 +46,7 @@ click, rich, httpx, fastapi, uvicorn, pynvml,
 huggingface_hub, pydantic, python-dotenv, libtmux
 ```
 
-> **vLLM is NOT in requirements.txt** — it is heavy and scenario-specific. Install it separately:
-> ```bash
-> pip install vllm
-> ```
+> **vLLM is in a separate [requirements-gpu.txt](requirements-gpu.txt)** — it is heavy and only installs on Linux + CUDA, so it is kept out of `requirements.txt` to keep the no-GPU test path usable. `make install` installs it into `.venv` automatically on the GPU host.
 
 ### Accounts / tokens
 
@@ -80,7 +77,8 @@ This runs [scripts/install.sh](scripts/install.sh) which installs:
 - System packages: `tmux`, `curl`
 - Ookla speedtest CLI (via packagecloud.io apt repo)
 - ngrok (via ngrok apt repo)
-- Python packages from `requirements.txt`
+- Python packages from `requirements.txt` into `.venv`
+- GPU packages from `requirements-gpu.txt` (vLLM) into `.venv`
 
 ### 3. Configure environment
 
@@ -101,11 +99,7 @@ NGROK_AUTHTOKEN=your_ngrok_token     # only needed for `make tunnel`
 
 > Get your ngrok auth token at [dashboard.ngrok.com](https://dashboard.ngrok.com/get-started/your-authtoken)
 
-### 4. Install vLLM
-
-```bash
-pip install vllm
-```
+> vLLM is installed into `.venv` by `make install` (step 2) via [requirements-gpu.txt](requirements-gpu.txt) — no separate install step needed. To install it manually, use the venv pip: `.venv/bin/pip install -r requirements-gpu.txt`.
 
 ---
 
@@ -130,6 +124,8 @@ make install                     # install system + Python deps (tmux, speedtest
 make start SCENARIO=name         # full lifecycle: doctor → download → start → warmup → ready
 make stop                        # stop vLLM + agent tmux sessions
 make status                      # show service status + HTTP health endpoints
+make info                        # reprint connection banner (public IP, mapped ports, .env snippet)
+make info SCENARIO=name          # use the scenario you started with (defaults to baseline)
 make logs                        # tail combined log output
 make attach SVC=vllm             # attach to vLLM tmux session (Ctrl-B D to detach)
 make attach SVC=agent            # attach to agent tmux session

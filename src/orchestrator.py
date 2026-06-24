@@ -58,11 +58,12 @@ def start(
     health.wait_for_agent(timeout=15)
     log.success("Agent ready at :9100")
 
-    # ── Step 5: Start vLLM (slow — 60-180s) ─────────────────────────────────
-    log.section("vLLM server")
+    # ── Step 5: Start inference server (slow — 60-180s) ─────────────────────
+    backend_label = "HF Transformers" if scenario.backend == "transformers" else "vLLM"
+    log.section(f"{backend_label} server")
     start_vllm.start_in_tmux(scenario)
     health.wait_for_vllm(timeout=600, show_log_tail=True)
-    log.success("vLLM ready at :8000")
+    log.success(f"{backend_label} ready at :{scenario.port}")
 
     # ── Step 6: Warmup ───────────────────────────────────────────────────────
     if not skip_warmup:

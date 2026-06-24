@@ -1,0 +1,11 @@
+# GPU-only dependencies — installed into .venv by scripts/install.sh on the GPU host.
+# Kept separate from requirements.txt because vLLM is heavy and only installs on
+# Linux + CUDA, so the no-GPU test path (pip install -r requirements.txt) stays usable.
+vllm>=0.6,<1
+
+# Naive HuggingFace Transformers baseline server (the un-optimized reference the
+# `baseline` scenario runs, to contrast against vLLM). vLLM already pulls torch
+# in, but these are listed explicitly so the baseline works even if the vLLM
+# install path changes. accelerate is used for device placement.
+transformers>=4.44,<5
+accelerate>=0.34,<1

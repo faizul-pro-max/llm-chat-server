@@ -50,6 +50,9 @@ python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
 
+echo "==> Installing GPU dependencies (vLLM — this is large, may take a while)"
+.venv/bin/pip install -r requirements-gpu.txt
+
 echo "==> Creating logs directory"
 mkdir -p logs
 

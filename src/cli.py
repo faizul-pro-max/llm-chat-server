@@ -94,6 +94,19 @@ def status() -> None:
 
 
 @cli.command()
+@click.option("--scenario", default="baseline", show_default=True, help="Scenario whose port the server was started with")
+def info(scenario: str) -> None:
+    """Reprint the connection banner (public IP, mapped ports, .env snippet).
+
+    Read-only — does not restart or disturb running services. Useful when you
+    cleared the terminal and lost the output from `make start`.
+    """
+    from src.orchestrator import _print_ready, load_scenario
+
+    _print_ready(load_scenario(scenario))
+
+
+@cli.command()
 @click.option("--service", type=click.Choice(["vllm", "agent"]), default=None, help="Which service logs to tail")
 @click.option("--tail", default=50, show_default=True, help="Number of lines to show")
 def logs(service: str, tail: int) -> None:
@@ -149,8 +162,8 @@ def show(name: str) -> None:
     for key, value in s.model_dump().items():
         click.echo(f"  {key:<35} {value}")
     click.echo()
-    click.echo("vLLM command:")
-    click.echo("  " + " ".join(s.build_vllm_command()))
+    click.echo(f"Launch command (backend={s.backend}):")
+    click.echo("  " + " ".join(s.build_command()))
     click.echo()
 
 

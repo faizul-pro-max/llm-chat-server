@@ -6,7 +6,7 @@ NO_DOWNLOAD  ?=
 NO_WARMUP    ?=
 PYTHON       ?= .venv/bin/python3
 
-.PHONY: help install doctor start stop status logs attach clean teardown tunnel
+.PHONY: help install doctor start stop status info logs attach clean teardown tunnel
 
 help:
 	@echo "GPU Server Orchestrator — make targets:"
@@ -20,7 +20,9 @@ help:
 	@echo "  make start SCENARIO=name NO_DOWNLOAD=1      Skip model download (already cached)"
 	@echo "  make start SCENARIO=name NO_WARMUP=1        Skip warmup requests"
 	@echo "  make stop                 Stop all services (vLLM + agent)"
+	@echo "  make stop-agent           Stop ONLY the agent (vLLM keeps running); also make stop-vllm"
 	@echo "  make status               Show service status"
+	@echo "  make info                 Reprint connection banner (public IP, ports, .env snippet)"
 	@echo "  make logs                 Tail combined logs"
 	@echo "  make attach SVC=vllm      Attach to tmux session (vllm or agent)"
 	@echo "  make clean                Stop services + clean log files (keeps models)"
@@ -49,8 +51,15 @@ start:
 stop:
 	$(PYTHON) -m src.cli stop
 
+# make stop-agent / make stop-vllm — stop a single service, leave the other running
+stop-%:
+	$(PYTHON) -m src.cli stop --service $*
+
 status:
 	$(PYTHON) -m src.cli status
+
+info:
+	$(PYTHON) -m src.cli info --scenario $(SCENARIO)
 
 logs:
 	$(PYTHON) -m src.cli logs

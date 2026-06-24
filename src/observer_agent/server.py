@@ -15,6 +15,11 @@ from fastapi.responses import StreamingResponse
 
 from src.observer_agent.auth import require_api_key
 from src.observer_agent.nvml_reader import read_gpu, read_all_gpus
+from src.utils import env as envutil
+
+# Load .env so AGENT_SECRET (and friends) are available even when the agent is
+# launched in a bare tmux pane that did not inherit the shell's exported vars.
+envutil.load()
 
 app = FastAPI(title="GPU Observer Agent", version="1.0.0")
 

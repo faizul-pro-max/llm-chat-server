@@ -1,6 +1,7 @@
 """BaseScenario — common fields and interface shared by all scenarios."""
 from __future__ import annotations
 
+import sys
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -11,12 +12,19 @@ class BaseScenario(BaseModel):
     name: str = "base"
     description: str = ""
 
+    # Backend: which inference server to launch.
+    #   "vllm"         — optimized vLLM OpenAI server (default for all scenarios)
+    #   "transformers" — naive HuggingFace Transformers server (the un-optimized
+    #                    reference point that the baseline scenario uses to show
+    #                    how much vLLM improves throughput/latency)
+    backend: str = "vllm"
+
     # Model
     model: str = "Qwen/Qwen2.5-7B-Instruct"
     dtype: str = "float16"
     quantization: Optional[str] = None
 
-    # vLLM server
+    # Inference server
     host: str = "0.0.0.0"
     port: int = 8000
     gpu_memory_utilization: float = 0.90
@@ -40,6 +48,28 @@ class BaseScenario(BaseModel):
     class Config:
         # Allow subclasses to set class-level attributes as defaults
         arbitrary_types_allowed = True
+
+    def build_command(self) -> List[str]:
+        """Build the inference-server launch command for this scenario's backend."""
+        if self.backend == "transformers":
+            return self.build_hf_command()
+        return self.build_vllm_command()
+
+    def build_hf_command(self) -> List[str]:
+        """Build the launch command for the naive HuggingFace Transformers server.
+
+        Mirrors the vLLM OpenAI API (/health, /v1/models, /v1/completions,
+        /v1/chat/completions) on the same host/port so the rest of the pipeline
+        — warmup, health checks, the Node client — works without changes.
+        """
+        return [
+            sys.executable, "-m", "src.lifecycle.hf_server",
+            "--model", self.model,
+            "--host", self.host,
+            "--port", str(self.port),
+            "--dtype", self.dtype,
+            "--max-model-len", str(self.max_model_len),
+        ]
 
     def build_vllm_command(self) -> List[str]:
         """Build the full `vllm serve` argument list for this scenario."""
@@ -68,6 +98,8 @@ class BaseScenario(BaseModel):
         return 14.0
 
     def summary(self) -> str:
+        if self.backend == "transformers":
+            return f"{self.dtype} [backend=transformers (naive, no batching)]"
         flags = []
         if self.enable_prefix_caching:
             flags.append("prefix-caching")

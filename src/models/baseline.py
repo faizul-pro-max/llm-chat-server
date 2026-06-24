@@ -1,10 +1,18 @@
-"""Baseline scenario — no optimizations. The zero line."""
+"""Baseline scenario — no optimizations. The zero line.
+
+Runs the model on plain HuggingFace Transformers (naive `model.generate()`, one
+request at a time — no continuous batching, no paged attention). This is the
+un-optimized reference point: benchmark it against any vLLM scenario to measure
+how much throughput/latency vLLM actually buys you.
+"""
 from src.models._base import BaseScenario
 
 
 class BaselineScenario(BaseScenario):
     name: str = "baseline"
-    description: str = "Plain vLLM FP16, no optimizations"
+    description: str = "Naive HuggingFace Transformers FP16, no optimizations"
+
+    backend: str = "transformers"
 
     model: str = "Qwen/Qwen2.5-7B-Instruct"
     dtype: str = "float16"
