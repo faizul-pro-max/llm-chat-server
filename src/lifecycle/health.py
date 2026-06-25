@@ -12,7 +12,7 @@ from src.utils import logging as log
 from src.utils import tmux
 
 
-def wait_for_vllm(timeout: int = 180, show_log_tail: bool = True) -> None:
+def wait_for_vllm(timeout: int = 180, show_log_tail: bool = True, fail_hint: str = None) -> None:
     """Block until vLLM /health returns 200 or timeout is reached."""
     _wait(
         url="http://localhost:8000/health",
@@ -20,10 +20,11 @@ def wait_for_vllm(timeout: int = 180, show_log_tail: bool = True) -> None:
         tmux_session="vllm",
         timeout=timeout,
         show_log_tail=show_log_tail,
+        fail_hint=fail_hint,
     )
 
 
-def wait_for_agent(timeout: int = 15) -> None:
+def wait_for_agent(timeout: int = 15, fail_hint: str = None) -> None:
     """Block until the observer agent /health returns 200 or timeout is reached."""
     _wait(
         url="http://localhost:9100/health",
@@ -31,10 +32,12 @@ def wait_for_agent(timeout: int = 15) -> None:
         tmux_session="agent",
         timeout=timeout,
         show_log_tail=False,
+        fail_hint=fail_hint,
     )
 
 
-def _wait(url: str, service_name: str, tmux_session: str, timeout: int, show_log_tail: bool) -> None:
+def _wait(url: str, service_name: str, tmux_session: str, timeout: int, show_log_tail: bool,
+          fail_hint: str = None) -> None:
     deadline = time.monotonic() + timeout
     interval = 2.0
     attempt = 0
@@ -61,5 +64,5 @@ def _wait(url: str, service_name: str, tmux_session: str, timeout: int, show_log
             time.sleep(interval)
 
     log.error(f"{service_name} did not become ready within {timeout}s.")
-    log.info(f"  Check logs: tmux attach -t {tmux_session}")
+    log.info(f"  {fail_hint}" if fail_hint else f"  Check logs: tmux attach -t {tmux_session}")
     sys.exit(2)

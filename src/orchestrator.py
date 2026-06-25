@@ -75,6 +75,41 @@ def start(
     _print_ready(scenario)
 
 
+def start_docker(scenario_name: str, skip_warmup: bool = False) -> None:
+    """Host-side orchestration for the Docker stack.
+
+    The compose stack (inference-server: vLLM + agent) is already started by
+    `docker compose up`. This does the part Docker can't: wait for both /health
+    endpoints, send warmup requests, and print the connection banner. tmux is not
+    involved — process supervision is handled by supervisord inside the container.
+    """
+    from src.lifecycle import warmup, health
+
+    log.section("Loading scenario")
+    scenario = load_scenario(scenario_name)
+    log.info(f"Scenario:  {scenario.name}")
+    log.info(f"Model:     {scenario.model}")
+    log.info(f"Config:    {scenario.summary()}")
+
+    hint = "Check logs:  make docker-logs   (or: docker compose logs inference-server)"
+
+    log.section("Waiting for services")
+    health.wait_for_agent(timeout=60, fail_hint=hint)
+    log.success("Agent ready at :9100")
+
+    backend_label = "HF Transformers" if scenario.backend == "transformers" else "vLLM"
+    # First run pulls the model from HuggingFace, so allow a long startup window.
+    health.wait_for_vllm(timeout=1800, show_log_tail=False, fail_hint=hint)
+    log.success(f"{backend_label} ready at :{scenario.port}")
+
+    if not skip_warmup:
+        log.section("Warmup")
+        warmup.run(scenario.warmup_prompts, count=scenario.warmup_requests)
+
+    log.section("Ready")
+    _print_ready(scenario)
+
+
 _AGENT_INTERNAL_PORT = 9100
 
 

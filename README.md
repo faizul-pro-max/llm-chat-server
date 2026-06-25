@@ -168,6 +168,71 @@ make start SCENARIO=prefix_cache
 
 ---
 
+## Running with Docker
+
+The stack can run as containers instead of bare-VM tmux sessions. Two services,
+both with GPU access, sharing a model-cache volume:
+
+| Container | Contents | Ports |
+|---|---|---|
+| `inference-server` | vLLM **+** observer/metrics agent, supervised by supervisord | 8000, 9100 |
+| `log-tailer` | tmux service that follows every per-service log in split panes | — |
+
+`doctor` and the orchestrator (warmup + connection banner) stay **host
+commands** — they drive the stack from outside, they are not containerized.
+
+### Prerequisites
+
+- NVIDIA driver + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on the host
+- Docker + Docker Compose v2
+- Host Python deps for the orchestrator step: `pip install -r requirements.txt` (no GPU/vLLM needed on the host)
+
+### Quick start
+
+```bash
+cp .env.example .env          # fill in secrets (VLLM_API_KEY, AGENT_SECRET, HF_TOKEN)
+
+# Optional pre-flight on the host GPU (free, no container)
+make doctor
+
+# Build, start the stack, wait for health, warm up, print the .env banner
+make docker-start SCENARIO=baseline
+```
+
+`make docker-start` runs `docker compose up -d --build`, then runs the host-side
+orchestrator (`src.cli await-ready`) which polls both `/health` endpoints, sends
+warmup requests, and prints the same connection banner as the bare-VM flow.
+
+### Docker make targets
+
+```bash
+make docker-start SCENARIO=name   # build + up + wait-ready -> warmup -> banner
+make docker-up    SCENARIO=name   # start detached only (skip warmup/banner)
+make docker-logs                  # attach to the tmux log-tailer (all services, split panes)
+make docker-tail                  # stream combined container logs (no tmux)
+make docker-status                # container + health status
+make docker-stop                  # stop containers (keep volumes/models)
+make docker-down                  # stop + remove containers (keeps model cache volume)
+make docker-clean                 # docker-down + delete the model cache volume
+```
+
+> **Logs:** each inner service writes its own file to `./logs/` on the host
+> (`vllm.log`, `agent.log`) via the bind-mounted logs volume. `make docker-logs`
+> attaches to the tmux session that tails them (`Ctrl-B` then `D` to detach).
+
+> **Model cache** lives on the `inference-server` in the named `hf-cache` volume
+> (`HF_HOME=/root/.cache/huggingface`). It survives `docker-down`; only
+> `docker-clean` deletes it. The first start downloads the model — allow several
+> minutes (the healthcheck `start_period` is 10 min).
+
+> **Scenarios:** `SCENARIO=<name>` selects the model + vLLM flags; the
+> `inference-server` entrypoint runs `src.cli serve --scenario $SCENARIO`, which
+> exec()s vLLM (or the HF baseline server) directly so supervisord supervises it.
+> The `dual_model` scenario needs a second vLLM program — publish `8001:8001` and
+> add a `serve --instance secondary` program to `docker/supervisord.conf`.
+
+---
+
 ## How it works
 
 ### Startup flow

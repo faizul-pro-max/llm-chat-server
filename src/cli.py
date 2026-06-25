@@ -56,6 +56,50 @@ def start(scenario: str, no_warmup: bool, no_download: bool) -> None:
 
 
 @cli.command()
+@click.option("--scenario", required=True, help="Scenario name (e.g. baseline, prefix_cache)")
+@click.option("--instance", type=click.Choice(["primary", "secondary"]), default="primary", show_default=True,
+              help="For multi-instance scenarios (dual_model): which vLLM instance to launch.")
+def serve(scenario: str, instance: str) -> None:
+    """Launch the inference server in the FOREGROUND (no tmux).
+
+    This is the container entrypoint for the `inference-server` service. It builds
+    the scenario's launch command and replaces this process via exec(), so the
+    process manager (supervisord / Docker) supervises vLLM (or the HF baseline
+    server) directly instead of a Python wrapper.
+    """
+    import os
+    from src.orchestrator import load_scenario
+
+    s = load_scenario(scenario)
+    if instance == "secondary":
+        if not hasattr(s, "build_secondary_command"):
+            click.echo(f"Scenario '{scenario}' has no secondary instance.", err=True)
+            sys.exit(3)
+        parts = s.build_secondary_command()
+    else:
+        parts = s.build_command()
+
+    click.echo(f"[serve] scenario={s.name} backend={s.backend} instance={instance}")
+    click.echo(f"[serve] exec: {' '.join(parts)}", nl=True)
+    sys.stdout.flush()
+    os.execvp(parts[0], parts)
+
+
+@cli.command(name="await-ready")
+@click.option("--scenario", required=True, help="Scenario the inference-server was started with")
+@click.option("--no-warmup", is_flag=True, help="Skip warmup requests")
+def await_ready(scenario: str, no_warmup: bool) -> None:
+    """Wait for the Docker inference-server to be healthy, warm up, print the banner.
+
+    Host-side half of the orchestrator in Docker mode: the compose stack starts
+    vLLM + the agent; this waits on their /health endpoints, sends warmup
+    requests, then prints the connection banner. Run by `make docker-start`.
+    """
+    from src import orchestrator
+    orchestrator.start_docker(scenario, skip_warmup=no_warmup)
+
+
+@cli.command()
 @click.option("--service", type=click.Choice(["vllm", "agent", "all"]), default="all", show_default=True)
 def stop(service: str) -> None:
     """Stop tmux sessions for vLLM / agent."""

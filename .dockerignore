@@ -1,0 +1,31 @@
+# Keep the build context small — only src/ + requirements are needed in the image.
+.git/
+.venv/
+venv/
+env/
+.env
+logs/
+*.log
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Model weights must never enter the build context
+.cache/
+*.bin
+*.safetensors
+*.gguf
+
+# Docs / planning — not needed at runtime
+PLAN.MD
+TRACKER.md
+CLAUDE.ME
+
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,68 @@
+# GPU Server Orchestrator — containerized stack.
+#
+#   inference-server : vLLM (:8000) + observer/metrics agent (:9100), supervised
+#                      by supervisord. Holds the HuggingFace model cache.
+#   log-tailer       : tmux service that follows every per-service log for debug.
+#
+# Prereqs on the host: NVIDIA driver + nvidia-container-toolkit, and a .env
+# (copy from .env.example). Pick a scenario with SCENARIO=<name>.
+#
+# Doctor and the orchestrator (warmup + connection banner) stay HOST commands —
+# see `make doctor` and `make docker-start`.
+
+services:
+  inference-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-chat-inference:latest
+    container_name: llm-inference-server
+    env_file: .env
+    environment:
+      SCENARIO: ${SCENARIO:-baseline}
+      HF_HOME: /root/.cache/huggingface
+      LOG_DIR: /app/logs
+      AGENT_PORT: "9100"
+    ports:
+      - "8000:8000"   # vLLM OpenAI-compatible API
+      - "9100:9100"   # observer / metrics agent
+      # dual_model scenario: also publish "8001:8001" and add a secondary vLLM
+      # program to docker/supervisord.conf (serve --instance secondary).
+    volumes:
+      - hf-cache:/root/.cache/huggingface   # model cache lives on the inference server
+      - ./logs:/app/logs                    # per-service logs -> host volume
+    shm_size: "8gb"                         # vLLM/torch need a large /dev/shm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      # stdlib only (no curl in the base image): both endpoints must answer 200.
+      test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://localhost:8000/health'); u.urlopen('http://localhost:9100/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 30
+      start_period: 600s   # first run downloads the model from HuggingFace
+
+  log-tailer:
+    build:
+      context: .
+      dockerfile: docker/log-tailer.Dockerfile
+    image: llm-chat-log-tailer:latest
+    container_name: llm-log-tailer
+    environment:
+      LOG_DIR: /logs
+    volumes:
+      - ./logs:/logs        # same logs the inference-server writes to
+    depends_on:
+      - inference-server
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+volumes:
+  hf-cache:
