@@ -16,7 +16,7 @@ help:
 	@echo ""
 	@echo "  make install              Install system + Python deps"
 	@echo "  make doctor               Run all pre-flight checks (table view)"
-	@echo "  make doctor CHECK=network Run a single check  (cuda|disk|vram|cpu|ram|network|hf|ports|cache|tmux|sessions)"
+	@echo "  make doctor CHECK=network Run a single check  (cuda|vllm|disk|vram|cpu|ram|network|hf|ports|cache|tmux|sessions)"
 	@echo "  make doctor SIMPLE=1      Plain dot-format output instead of table"
 	@echo "  make doctor-network       Shorthand for CHECK=network (any check name works)"
 	@echo "  make start SCENARIO=name                    Full lifecycle: doctor -> download -> start -> warmup"

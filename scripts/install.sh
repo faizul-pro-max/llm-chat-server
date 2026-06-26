@@ -50,8 +50,12 @@ python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
 
-echo "==> Installing GPU dependencies (vLLM — this is large, may take a while)"
-.venv/bin/pip install -r requirements-gpu.txt
+if [ "${FORCE_GPU_DEPS:-}" != "1" ] && .venv/bin/python3 -c "import importlib.metadata as m; m.version('vllm')" 2>/dev/null; then
+    log "vLLM already installed ($(.venv/bin/python3 -c "import importlib.metadata as m; print(m.version('vllm'))")) — skipping GPU deps. Force a reinstall with FORCE_GPU_DEPS=1"
+else
+    echo "==> Installing GPU dependencies (vLLM — this is large, may take a while)"
+    .venv/bin/pip install -r requirements-gpu.txt
+fi
 
 echo "==> Creating logs directory"
 mkdir -p logs

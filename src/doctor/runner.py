@@ -40,6 +40,7 @@ def _registry(scenario) -> List[Tuple[str, str, Callable]]:
 
     return [
         ("cuda",     "CUDA + Driver",       lambda: check_cuda(scenario)),
+        ("vllm",     "vLLM installed",       lambda: _check_vllm(scenario)),
         ("disk",     "Disk space",           lambda: check_disk(scenario)),
         ("vram",     "VRAM",                 lambda: check_vram(scenario)),
         ("cpu",      "CPU cores",            lambda: check_cpu(scenario)),
@@ -55,7 +56,7 @@ def _registry(scenario) -> List[Tuple[str, str, Callable]]:
 
 # Exported so cli.py can build the Click Choice list without importing checks
 CHECK_KEYS = [
-    "cuda", "disk", "vram", "cpu", "ram",
+    "cuda", "vllm", "disk", "vram", "cpu", "ram",
     "network", "hf", "ports", "cache", "tmux", "sessions",
 ]
 
@@ -256,6 +257,24 @@ def _print_summary(results: List[CheckResult], simple: bool = False) -> None:
 
 
 # ── Inline checks ─────────────────────────────────────────────────────────────
+
+def _check_vllm(_scenario) -> CheckResult:
+    """Verify vLLM is importable in the active interpreter (the .venv used by doctor)."""
+    import importlib.metadata as md
+    try:
+        version = md.version("vllm")
+        return CheckResult(name="vLLM installed", passed=True, message=f"v{version}")
+    except md.PackageNotFoundError:
+        return CheckResult(
+            name="vLLM installed",
+            passed=False,
+            message="not installed",
+            severity="warning",
+            detail="Run `make install` (installs requirements-gpu.txt), or `pip install -r requirements-gpu.txt`.",
+        )
+    except Exception as exc:
+        return CheckResult(name="vLLM installed", passed=False, message=str(exc))
+
 
 def _check_tmux(_scenario) -> CheckResult:
     import subprocess
