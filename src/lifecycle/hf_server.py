@@ -28,7 +28,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -38,6 +38,19 @@ _TOKENIZER = None
 _MODEL_ID: str = ""
 _MAX_MODEL_LEN: int = 4096
 _DEVICE: str = "cpu"
+_API_KEY: str = ""   # set in main() from --api-key; empty disables auth
+
+
+async def _require_bearer(authorization: str = Header(None)) -> None:
+    """Mirror vLLM's auth: API routes need `Authorization: Bearer <key>`.
+
+    No-op when no key was configured, so the un-optimized baseline can still run
+    standalone without a token (e.g. local debugging).
+    """
+    if not _API_KEY:
+        return
+    if authorization != f"Bearer {_API_KEY}":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 
 # Serialise generation: the naive baseline handles one request at a time.
 _GEN_LOCK = threading.Lock()
@@ -163,7 +176,7 @@ async def health() -> Dict[str, Any]:
     return {"status": "ok" if ready else "loading", "ts": time.time()}
 
 
-@app.get("/v1/models")
+@app.get("/v1/models", dependencies=[Depends(_require_bearer)])
 async def models() -> Dict[str, Any]:
     return {
         "object": "list",
@@ -171,7 +184,7 @@ async def models() -> Dict[str, Any]:
     }
 
 
-@app.post("/v1/completions")
+@app.post("/v1/completions", dependencies=[Depends(_require_bearer)])
 async def completions(req: CompletionRequest):
     if req.stream:
         return StreamingResponse(
@@ -193,7 +206,7 @@ async def completions(req: CompletionRequest):
     }
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", dependencies=[Depends(_require_bearer)])
 async def chat_completions(req: ChatCompletionRequest):
     prompt = _render_chat(req.messages)
     if req.stream:
@@ -278,16 +291,19 @@ def _load_model(model_id: str, dtype: str) -> None:
 
 
 def main() -> None:
-    global _MAX_MODEL_LEN
+    global _MAX_MODEL_LEN, _API_KEY
     parser = argparse.ArgumentParser(description="Naive HF Transformers baseline server")
     parser.add_argument("--model", required=True)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--dtype", default="float16")
     parser.add_argument("--max-model-len", type=int, default=4096)
+    parser.add_argument("--api-key", default="",
+                        help="Require 'Authorization: Bearer <key>' on /v1/* routes")
     args = parser.parse_args()
 
     _MAX_MODEL_LEN = args.max_model_len
+    _API_KEY = args.api_key
     _load_model(args.model, args.dtype)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 

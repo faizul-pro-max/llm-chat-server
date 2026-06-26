@@ -38,7 +38,7 @@ def run(prompts: List[str], count: int = 20) -> None:
         for i in range(count):
             prompt = next(prompt_cycle)
             payload = {
-                "model": _detect_model(),
+                "model": _detect_model(headers),
                 "prompt": prompt,
                 "max_tokens": 50,
                 "temperature": 0.0,
@@ -60,10 +60,10 @@ def run(prompts: List[str], count: int = 20) -> None:
         log.warning("All warmup requests failed — check vLLM logs")
 
 
-def _detect_model() -> str:
+def _detect_model(headers: dict = None) -> str:
     """Ask vLLM which model is loaded."""
     try:
-        r = httpx.get("http://localhost:8000/v1/models", timeout=5)
+        r = httpx.get("http://localhost:8000/v1/models", headers=headers or {}, timeout=5)
         data = r.json()
         return data["data"][0]["id"]
     except Exception:

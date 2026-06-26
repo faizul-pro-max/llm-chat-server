@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from src.observer_agent.auth import require_api_key
 from src.observer_agent.nvml_reader import read_gpu, read_all_gpus
 from src.utils import env as envutil
+from src.utils import experiment
 
 # Load .env so AGENT_SECRET (and friends) are available even when the agent is
 # launched in a bare tmux pane that did not inherit the shell's exported vars.
@@ -26,8 +27,24 @@ app = FastAPI(title="GPU Observer Agent", version="1.0.0")
 
 @app.get("/health")
 async def health() -> Dict[str, Any]:
-    """Unauthenticated health check."""
-    return {"status": "ok", "ts": time.time()}
+    """Unauthenticated health check. Includes the active scenario name, if any."""
+    active = experiment.current()
+    return {
+        "status": "ok",
+        "ts": time.time(),
+        "scenario": active.get("name") if active else None,
+    }
+
+
+@app.get("/experiment", dependencies=[Depends(require_api_key)])
+async def active_experiment() -> Dict[str, Any]:
+    """Return the scenario config selected by `make start` — model, backend,
+    optimisation flags, the exact launch command, and the full Pydantic config.
+    """
+    active = experiment.current()
+    if active is None:
+        return {"active": False, "experiment": None}
+    return {"active": True, "experiment": active}
 
 
 @app.get("/gpu", dependencies=[Depends(require_api_key)])
