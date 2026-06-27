@@ -41,8 +41,8 @@ def doctor(skip_network: bool, scenario: str, check: str, simple: bool) -> None:
         )
 
     s = load_scenario(scenario)
-    passed = doctor_runner.run_all(s, skip_network=skip_network, only=check, simple=simple)
-    sys.exit(0 if passed else 1)
+    results = doctor_runner.run_all(s, skip_network=skip_network, only=check, simple=simple)
+    sys.exit(1 if doctor_runner.has_blocking_errors(results) else 0)
 
 
 @cli.command()

@@ -54,10 +54,12 @@ def check_network(scenario) -> CheckResult:
                 name="Network speed",
                 passed=False,
                 message=msg,
+                severity="warning",
                 detail=(
-                    f"Download too slow ({down_mb_s:.1f} MB/s). "
+                    f"Download very slow ({down_mb_s:.1f} MB/s). "
                     f"Fetching the model will cost ~${est_cost:.2f} in GPU time.\n"
-                    "    Options: pick a host with faster network, or use --skip-network to bypass."
+                    "    `make start` will ask before continuing. To skip this check\n"
+                    "    entirely, use --skip-network, or pick a host with faster network."
                 ),
             )
         if down_mb_s < WARN_MB_S:

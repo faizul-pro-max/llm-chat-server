@@ -55,9 +55,19 @@ def start(
 
     # ── Step 2: Doctor (mandatory) ───────────────────────────────────────────
     log.section("Pre-flight checks")
-    passed = doctor_runner.run_all(scenario)
-    if not passed:
+    results = doctor_runner.run_all(scenario)
+    if doctor_runner.has_blocking_errors(results):
         log.error("Doctor failed — aborting. Fix the issues above before retrying.")
+        sys.exit(1)
+
+    # A slow network is a warning, not a hard stop — let the user decide whether
+    # the (costly) model download is worth it on this host.
+    slow_network = any(
+        r.name == "Network speed" and not r.passed and r.severity == "warning"
+        for r in results
+    )
+    if slow_network and not _confirm_slow_network():
+        log.error("Aborted by user — network too slow.")
         sys.exit(1)
 
     # ── Step 3: Download model ───────────────────────────────────────────────
@@ -86,6 +96,26 @@ def start(
     # ── Step 7: Print connection info ────────────────────────────────────────
     log.section("Ready")
     _print_ready(scenario)
+
+
+def _confirm_slow_network() -> bool:
+    """Ask the user whether to proceed despite a slow network.
+
+    Returns True to continue. When there is no interactive terminal (CI / Docker),
+    we can't prompt — proceed with a loud warning rather than silently aborting.
+    """
+    if not sys.stdin.isatty():
+        log.warning("Network is slow and there is no TTY to prompt — continuing anyway.")
+        log.info("Re-run with `--skip-network` to silence this check.")
+        return True
+
+    log.warning("Network is slow — downloading the model will be slow and costly in GPU time.")
+    try:
+        answer = input("  Continue anyway? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in ("y", "yes")
 
 
 def start_docker(scenario_name: str, skip_warmup: bool = False) -> None:

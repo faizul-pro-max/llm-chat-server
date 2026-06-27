@@ -68,8 +68,12 @@ def run_all(
     skip_network: bool = False,
     only: Optional[str] = None,   # single check key, or None for all
     simple: bool = False,          # True → old dot-format output
-) -> bool:
-    """Run checks and render output. Returns True when no errors remain."""
+) -> List[CheckResult]:
+    """Run checks, render output, and return the list of results.
+
+    Use `has_blocking_errors(results)` to decide whether to abort — warnings
+    (e.g. a slow network) do not block on their own.
+    """
     registry = _registry(scenario)
 
     if only:
@@ -88,7 +92,12 @@ def run_all(
 
     _print_details(results)
     _print_summary(results, simple=simple)
-    return all(r.passed or r.severity != "error" for r in results)
+    return results
+
+
+def has_blocking_errors(results: List[CheckResult]) -> bool:
+    """True when any check failed with error severity (warnings don't block)."""
+    return any(not r.passed and r.severity == "error" for r in results)
 
 
 # ── Table output (default) ────────────────────────────────────────────────────
